@@ -1,0 +1,8 @@
+requests
+pandas
+openpyxl
+pdfplumber
+gspread
+google-auth
+python-dotenv
+pyyaml

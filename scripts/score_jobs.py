@@ -114,7 +114,10 @@ def passes_location_filter(item: dict, config: dict) -> bool:
     if not posting_loc:
         return True
 
-    if _word_match(country, posting_loc):
+    # `country_aliases` covers postings that never spell the country out -- US
+    # listings read "Minneapolis, MN", so state codes/names have to count too.
+    names = [country, *(loc.get("country_aliases") or [])]
+    if any(_word_match(name, posting_loc) for name in names):
         return True
 
     if allow_remote:
@@ -127,7 +130,7 @@ def passes_location_filter(item: dict, config: dict) -> bool:
                 description_of(item).lower(),
             ]
         )
-        if _word_match(country, text) and _word_match("remote", text):
+        if any(_word_match(name, text) for name in names) and _word_match("remote", text):
             return True
 
     return False
@@ -178,6 +181,27 @@ def posting_age_days(posted_raw: str) -> int | None:
     return None
 
 
+CONTRACT_TERMS = {
+    "C2C": re.compile(r"\bc2c\b|corp[\s-]*to[\s-]*corp", re.I),
+    "W2": re.compile(r"\bw-?2\b", re.I),
+    "1099": re.compile(r"\b1099\b"),
+}
+
+
+def employment_type_of(item: dict, description: str) -> str:
+    """LinkedIn's employmentType ("Contract") never says which tax terms apply,
+    so append whichever of C2C/W2/1099 the posting text mentions."""
+    base = item.get("employmentType") or ""
+    terms = []
+    for name, rx in CONTRACT_TERMS.items():
+        if not rx.search(description):
+            continue
+        # "No C2C" / "not open to W2" is a mention that rules the term out.
+        negated = re.search(rf"\b(?:no|not|non|without)\b[^.\n]{{0,15}}(?:{rx.pattern})", description, re.I)
+        terms.append(f"No {name}" if negated else name)
+    return f"{base} ({', '.join(terms)})" if base and terms else base or ", ".join(terms)
+
+
 def match_skills(text: str, core_skills: dict) -> tuple[int, list[str]]:
     total = 0
     matched: list[str] = []
@@ -213,6 +237,20 @@ def experience_penalty(text: str, candidate_years: int, cap: int) -> int:
     return gap
 
 
+REQUIRED_YEARS_REGEX = re.compile(
+    r"(\d+)\s*\+?\s*(?:-|–|to)?\s*(?:\d+\s*)?\+?\s*years?\b[^.\n]{0,40}?\bexperience", re.IGNORECASE
+)
+
+
+def required_years(text: str) -> int:
+    """Highest "N years ... experience" figure in the text, 0 if none. Stricter
+    than EXPERIENCE_REGEX (which feeds the soft penalty): it has to be a hard
+    cutoff, so "serving clients for 25 years" must not count. For a range like
+    "5-7 years" the lower bound is what's required."""
+    years = [int(m.group(1)) for m in REQUIRED_YEARS_REGEX.finditer(text)]
+    return max((n for n in years if 0 < n <= 30), default=0)
+
+
 def max_possible_raw_score(config: dict) -> int:
     skills = config.get("core_skills", {})
     max_skill = sum(int(spec.get("weight", 1)) for spec in skills.values())
@@ -239,6 +277,11 @@ def score_item(item: dict, config: dict, max_raw: int) -> dict | None:
     title = title_of(item)
     if not title:
         return None
+    # LinkedIn's f_JT filter is loose -- a contract search still returns about
+    # half full-time postings -- so enforce the wanted types here as well.
+    keep_types = [t.lower() for t in config.get("keep_employment_types", [])]
+    if keep_types and str(item.get("employmentType") or "").lower() not in keep_types:
+        return None
     if excluded_by_title(title, config.get("exclude_title_terms", [])):
         return None
     if not passes_location_filter(item, config):
@@ -258,6 +301,10 @@ def score_item(item: dict, config: dict, max_raw: int) -> dict | None:
 
     description = description_of(item)
     text = f"{title}\n{description}"
+
+    max_years = config.get("max_required_years")
+    if max_years is not None and required_years(text) > int(max_years):
+        return None
 
     skill_score, matched = match_skills(text, config.get("core_skills", {}))
     penalty = experience_penalty(
@@ -286,7 +333,7 @@ def score_item(item: dict, config: dict, max_raw: int) -> dict | None:
         "location": location,
         "experience_required": item.get("experienceLevel") or item.get("seniorityLevel") or "",
         "seniority": item.get("seniorityLevel") or "",
-        "employment_type": item.get("employmentType") or "",
+        "employment_type": employment_type_of(item, description),
         "skills_matched": ", ".join(sorted(set(matched))),
         "posted": posted_at_of(item),
         "applicants": item.get("applicantsCount") or item.get("applicants") or "",

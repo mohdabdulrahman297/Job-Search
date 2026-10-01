@@ -268,3 +268,33 @@ belongs there only if its absence from a posting is genuinely evidence of a poor
 full inventory still lives in `context/profile.md` and is what resume generation reads, so
 trimming here costs nothing on the resume side. Tune the skill set, not `min_match_score` —
 lowering the threshold to compensate hides the modelling error instead of fixing it.
+
+---
+
+## 2026-09-30 — US candidates: `country_aliases` and `include_country_wide`
+
+**Decision:** `score_jobs.py`'s location filter also accepts any name in `location.country_aliases`, and `fetch_jobs.py` swaps its remote-only country search for an unfiltered country-wide one when `location.include_country_wide` is set. Both are optional; configs without them behave as before.
+
+**Why:** First US onboarding. LinkedIn's US locations read "Minneapolis, MN" with no country, so matching on `country` alone dropped every on-site US posting. The candidate also wants on-site roles anywhere in the country, which the province + remote-only pair of searches never fetched.
+
+**Alternatives considered:** Fail open when the country isn't named — rejected, company career sites return worldwide postings. A third search per role — rejected, country-wide already covers remote and a third search adds Apify cost for duplicates.
+
+**Owner:** Mohammed (with Claude Code)
+
+---
+
+## 2026-09-30 — Contract search: `job_types` filter and C2C/W2 tagging
+
+**Decision:** `fetch_jobs.py` passes an optional `job_types` list as LinkedIn's `f_JT` filter (`C` = contract). Contract searches use their own `configs/search_contract.json` and write to a `<date> Contract` tab. `score_jobs.py` appends whichever of C2C / W2 / 1099 a posting's text mentions to its Employment Type.
+
+**Why:** The candidate wants contract roles alongside full-time ones. LinkedIn has no C2C/W2 filter; those terms only appear in the description, so they're tagged rather than filtered. A separate config and tab keep the full-time search and its day-over-day "New Since Last Run" comparison untouched (the non-date tab name is skipped by `find_previous_tab`).
+
+Also on 2026-09-30: an optional `max_required_years` hard-drops postings asking for more experience than that (set to 6 at the candidate's request). It uses its own stricter regex that needs the word "experience" after the number, so company boilerplate like "25 years in business" can't knock a posting out; the older soft `experience_penalty` is unchanged.
+
+Also on 2026-09-30: Dice and Indeed added as sources through `scripts/fetch_boards.py`, which emits the same raw shape as `fetch_jobs.py`. Actors picked for having a contract filter (Dice) or a job-type field to filter on (Indeed), low per-result cost, and a track record in the store. Dice's actor returns only a ~500-character summary, so the full description is read from each job page's JSON-LD — skill scoring and `max_required_years` are meaningless on a summary. The C2C/W2 tagger reads negations, so "No C2C" shows as `No C2C`, not `C2C`.
+
+`f_JT=C` turned out to be loose — about half of what came back was full-time — so `score_jobs.py` also honours an optional `keep_employment_types` list, and the contract config keeps only `Contract` and `Temporary`.
+
+**Alternatives considered:** Adding `C` to the main config's job types — rejected, it mixes both kinds into one tab. Dropping postings that name neither C2C nor W2 — rejected, many contract postings never state it.
+
+**Owner:** Mohammed (with Claude Code)

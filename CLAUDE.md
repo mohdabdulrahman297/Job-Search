@@ -51,6 +51,6 @@ Skills also check their own prerequisites — this table is about sequencing, no
 
 ## Ground rules
 
-- Use the project venv at `.venv/` — invoke it as `.venv/bin/python`, which is what `.claude/settings.json` allowlists. If it doesn't exist, create it and install `requirements.txt`. Windows paths: see README's Supported platforms.
+- Use the project venv at `.venv/` — invoke it as `.venv/bin/python`, which is what `.claude/settings.json` allowlists. If it doesn't exist, create it and install `requirements.txt`. Windows paths: see README's Supported platforms. On Windows, set `PYTHONUTF8=1` before running any script — they read and write JSON without an explicit encoding and crash on cp1252 otherwise.
 - If a step fails, print the error and stop. Don't silently fall back or skip.
 - Be direct and concise. Lead with what needs action.

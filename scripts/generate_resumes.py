@@ -426,11 +426,21 @@ def main() -> int:
 
     generated = 0
     failures = 0
+    candidate = sanitize_filename(profile.get("name", ""))
+    used_names: set[str] = set()
     for item in qualifying:
         company = item.get("company", "")
         title = item.get("job_title", "")
-        posting_id = sanitize_filename(item.get("apply_link", "") or f"{company}{title}")[:16]
-        slug = f"{sanitize_filename(company)}_{sanitize_filename(title)}_{posting_id}"
+        # The .tex keeps company + posting id so intermediates never collide;
+        # the PDF the candidate sends is just <name>_<role>.
+        slug = f"{sanitize_filename(company)}_{sanitize_filename(title)}_{item.get('posting_id', '')}"
+        pdf_name = f"{candidate}_{sanitize_filename(title)}"
+        if pdf_name in used_names:  # two postings with the same title in one run
+            n = 2
+            while f"{pdf_name}-{n}" in used_names:
+                n += 1
+            pdf_name = f"{pdf_name}-{n}"
+        used_names.add(pdf_name)
 
         keywords = matched_keywords(item)
         tex_content = build_tex(template_text, profile, keywords, max_skill_lines)
@@ -449,7 +459,7 @@ def main() -> int:
             print(f"WARNING: compiler reported success but no PDF found for '{title}' at '{company}'", file=sys.stderr)
             continue
 
-        final_pdf = run_dir / f"{slug}.pdf"
+        final_pdf = run_dir / f"{pdf_name}.pdf"
         shutil.move(str(compiled_pdf), str(final_pdf))
         generated += 1
 

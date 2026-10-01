@@ -55,22 +55,31 @@ def build_search_urls(config: dict) -> list[str]:
 
     seniority_codes = config.get("seniority_filter_codes", [])
     seniority_param = ",".join(str(c) for c in seniority_codes)
+    job_types = config.get("job_types", [])
+    window_seconds = int(config.get("posted_within_days", 1)) * 86400
 
     def _url(keywords: str, location: str, extra: list[str]) -> str:
         params = [
             f"keywords={quote_plus(keywords)}",
             f"location={quote_plus(location)}",
-            "f_TPR=r86400",
+            f"f_TPR=r{window_seconds}",
             *extra,
         ]
         if seniority_param:
             params.append(f"f_E={seniority_param}")
+        # LinkedIn job-type codes: F=full-time, C=contract, P=part-time, T=temporary
+        if job_types:
+            params.append(f"f_JT={','.join(job_types)}")
         return "https://www.linkedin.com/jobs/search/?" + "&".join(params)
 
     urls: list[str] = []
     for role in config["target_roles"]:
         urls.append(_url(role, province_location, []))
-        if include_remote:
+        # Country-wide with no workplace filter already covers remote, so it
+        # replaces the remote-only search rather than adding a third.
+        if loc.get("include_country_wide"):
+            urls.append(_url(role, country, []))
+        elif include_remote:
             urls.append(_url(role, country, ["f_WT=2"]))
     return urls
 
